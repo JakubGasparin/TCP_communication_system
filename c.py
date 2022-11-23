@@ -4,12 +4,19 @@ import libscrc
 HOST = "192.168.56.1"
 PORT = 5555
 FRAGMENT_SIZE = 1024
+PACKET_ORDER = 1
 
 
 def create_packet():
-    packet = ""
+    global PACKET_ORDER
     msg = input("Insert your message: ").encode()
-    order = '12'
+    order = PACKET_ORDER
+    PACKET_ORDER += 1
+    if order < 10:
+        order = str(order)
+        order = '0' + order
+    else:
+        order = str(order)
     operation = '001'
 
     order = order.encode()
@@ -22,6 +29,7 @@ def create_packet():
     msg = order + operation + msg + checksum
     print(msg)
     return msg
+
 
 def decode_acknowledgement_packet(data):
     msg = data.decode()

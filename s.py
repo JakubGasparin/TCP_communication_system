@@ -14,8 +14,15 @@ def decode_packet(data):
     checksum = msg[-5:]
     msg = msg[:-5]
     data = [msg[5:]]
-    packet = [order, operation, data, checksum]
-    return packet
+    crc = libscrc.buypass(msg[0:2].encode() + msg[2:5].encode() + msg[5:].encode())
+    crc = str(crc)
+    print(crc, checksum)
+    if crc == checksum:
+        packet = [order, operation, data, checksum]
+        return packet
+    else:
+        packet = [0, 0, 0, 0]
+        return packet
 
 
 def encode_acknowledgement_packet():
