@@ -5,7 +5,7 @@ import libscrc
 
 HOST = "192.168.56.1"
 PORT = 5555
-FRAGMENT_SIZE = 50
+FRAGMENT_SIZE = 20
 FRAGMENTED_PACKET_FLAG = False
 PACKET_ORDER = 1
 PACKET_BUFFER = []
@@ -16,30 +16,20 @@ def split_into_fragments(msg):
     global PACKET_ORDER, PACKET_BUFFER, FRAGMENTED_PACKET_FLAG
     FRAGMENTED_PACKET_FLAG = True
     PACKET_BUFFER.clear()
-    packet_cut = FRAGMENT_SIZE - 10
+    packet_cut = FRAGMENT_SIZE - 9
     cut_string = [msg[i:i+packet_cut] for i in range(0, len(msg), packet_cut)]
     print(cut_string)
 
-    for i in range (len(cut_string)):
+    for i in range(len(cut_string)):
         cut_msg = cut_string[i].encode()
         print(cut_msg)
         order = PACKET_ORDER
         PACKET_ORDER += 1
-        if order < 10:
-            order = str(order)
-            order = '0' + order
-            order = order.encode()
-        else:
-            order = str(order)
-            order = order.encode()
-        print(order)
+        order = order.to_bytes(4, "big")
         operation = "001"
         operation = operation.encode()
         crc = libscrc.buypass(order + operation + cut_msg)
-        crc = str(crc)
-        if len(crc) < 5:
-            crc = crc + '0'
-        crc = crc.encode()
+        crc = crc.to_bytes(2, "big")
 
         fragment_msg = order + operation + cut_msg + crc
         PACKET_BUFFER.append(copy(fragment_msg))
@@ -48,17 +38,12 @@ def split_into_fragments(msg):
 
 
 def create_get_ready_packet():
-    order = '00'
-    order = order.encode()
+    order = 0
+    order = order.to_bytes(4, "big")
     operation = 'RDY'
     operation = operation.encode()
     crc = libscrc.buypass(order + operation)
-    crc = str(crc)
-    if len(crc) < 5:
-        crc = crc + '0'
-        crc = crc.encode()
-    else:
-        crc = crc.encode()
+    crc = crc.to_bytes(2, "big")
     packet = order + operation + crc
     return packet
 
@@ -67,7 +52,7 @@ def create_packet():
     global PACKET_ORDER, PACKET_BUFFER
     msg = input("Insert your message: ")
 
-    if len(msg) + 10 > FRAGMENT_SIZE:
+    if len(msg) + 9 > FRAGMENT_SIZE:
         split_into_fragments(msg)
         packet = create_get_ready_packet()
         print(packet)
@@ -76,20 +61,11 @@ def create_packet():
         msg = msg.encode()
         order = PACKET_ORDER
         PACKET_ORDER += 1
-        if order < 10:
-            order = str(order)
-            order = '0' + order
-        else:
-            order = str(order)
+        order = order.to_bytes(4, "big")
         operation = '001'
-        order = order.encode()
         operation = operation.encode()
-
         checksum = libscrc.buypass(order + operation + msg)
-        checksum = str(checksum)
-        if len(checksum) < 5:
-            checksum = checksum + '0' # uistím sa že checksum vždy bude 5 cifier
-        checksum = checksum.encode()
+        checksum = checksum.to_bytes(2, "big")
         msg = order + operation + msg + checksum
         return msg
 
@@ -108,16 +84,14 @@ def main():
         s.connect((HOST, PORT))
         while True:
             packet = create_packet()
-            s.send(packet)
+            print("length: ")
             print(len(packet))
             if FRAGMENTED_PACKET_FLAG:
-                for i in range (len(PACKET_BUFFER)):
+                for i in range(len(PACKET_BUFFER)):
                     print(PACKET_BUFFER[i])
                     s.send(PACKET_BUFFER[i])
             else:
                 s.send(packet)
-            #sent = input("> ").encode()
-            #s.send(sent)
             data = s.recv(FRAGMENT_SIZE)
             packet_ack = decode_acknowledgement_packet(data)
 

@@ -59,4 +59,36 @@ operation = 'RDY'
 print(operation)
 
 
+crc = 825
+
+crc = str(crc)
+
+while len(crc) != 5:
+    crc = crc + '0'
+
+print(crc)
+string = "MKNDKJASNDCôASJKCNASôODMNASôLDNASôLKMDKLôSS!!!éíáýžťčšľ+12324789?:"
+string_utf = string.encode()
+order = 999999999
+order = order.to_bytes(4, 'big')
+crc = libscrc.buypass(order + string_utf + operation_utf)
+print(crc)
+
+crc = crc.to_bytes(2, "big")
+
+msg = order + string_utf + operation_utf + crc
+print(msg)
+
+msg_order = int.from_bytes(msg[:4], "big")
+msg_crc = int.from_bytes(msg[-2:], "big")
+msg = msg[4:]
+msg = msg[:-2]
+msg = msg.decode()
+
+print(msg_order)
+print(msg_crc)
+print(msg)
+
+
+
 

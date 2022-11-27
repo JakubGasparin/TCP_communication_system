@@ -4,38 +4,42 @@ import libscrc
 
 HOST = "192.168.56.1"
 PORT = 5555
-FRAGMENT_SIZE = 50
+FRAGMENT_SIZE = 20
 OPERATION = ""
+PACKET_BUFFER = []
+ORDER_BUFFER = []
 
 
 def decode_get_ready_packet(data):
     global OPERATION
-    msg = data.decode()
-    order = msg[0:2]
-    operator = msg[2:5]
-    checksum = msg[5:]
-    packet = [order, operator, checksum]
+    order = int.from_bytes(data[:4], "big")
+    checksum = int.from_bytes(data[-2:], "big")
+    data = data[4:]  # odstránim order
+    data = data[:-2]  # odstránim crc
+    operation = data.decode()
+    packet = [order, operation, checksum]
     OPERATION = 'RDY'
     return packet
 
 
 def decode_packet(data):
-    msg = data.decode()
-    order = msg[0:2]
-    operation = msg[2:5]
+    print(data)
+    order = int.from_bytes(data[:4], "big")
+    checksum = int.from_bytes(data[-2:], "big")
+    data = data[4:]     # odstránim order
+    data = data[:-2]    # odstránim crc
+    print(data)
+    data = data.decode()
+    operation = data[0:3]
     if operation == 'RDY':
         packet = decode_get_ready_packet(data)
         return packet
-    checksum = msg[-5:]
-    msg = msg[:-5]
-    data = [msg[5:]]
-    crc = libscrc.buypass(msg[0:2].encode() + msg[2:5].encode() + msg[5:].encode())
-    crc = str(crc)
-    if len(crc) < 5:
-        crc = crc + '0'
+    msg = data[3:]
+    # data = [msg[6:]]
+    crc = libscrc.buypass(order.to_bytes(2, 'big') + data[0:3].encode() + data[3:].encode())
     print(crc, checksum)
     if crc == checksum:
-        packet = [order, operation, data, checksum]
+        packet = [order, operation, msg, checksum]
         return packet
     else:
         packet = [0, 0, 0, 0]
@@ -65,8 +69,9 @@ def main():
                     data = conn.recv(FRAGMENT_SIZE)
                     if not data:
                         break
-                    print("Received:", data.decode())
+                    # print("Received:", data.decode())
                     decoded_packet = decode_packet(data)
+                    print(f"Received:{decoded_packet}\n")
                     if OPERATION == 'RDY':
                         print(f"Order of packet: {decoded_packet[0]}\n"
                               f"Ready Operation: {decoded_packet[1]}\n"
