@@ -3,101 +3,156 @@ from copy import copy
 
 import libscrc
 
+####### FLAGS ######
+
+ACK = 0
+RDY = 1
+END = 2
+WRT = 3
+MPK = 4
+
+####### FLAGS ######
+
+
 HOST = "192.168.56.1"
 PORT = 5555
-FRAGMENT_SIZE = 20
-FRAGMENTED_PACKET_FLAG = False
+FRAGMENT_SIZE = 50
 PACKET_ORDER = 1
+OPERATION = ""
+FRAGMENT_HEAD_SIZE = 13  # STATICKÁ HODNOTA NEMENTO!!!!
+GLOBAL_MESSAGE = ""
+GLOBAL_MESSAGE_COUNTER = 0
 PACKET_BUFFER = []
-DATA = ""
+MULTIPLE_FRAGMENTS_FLAG = False
 
 
-def split_into_fragments(msg):
-    global PACKET_ORDER, PACKET_BUFFER, FRAGMENTED_PACKET_FLAG
-    FRAGMENTED_PACKET_FLAG = True
+def get_flag(operation):
+    if operation == ACK:
+        operation = "_ACL"
+        return operation
+    if operation == RDY:
+        operation = "_RDY"
+        return operation
+    if operation == END:
+        operation = "_END"
+        return operation
+    if operation == WRT:
+        operation = "_WRT"
+        return operation
+
+
+def encode_single_packet(msg):
+    global PACKET_ORDER
+    order = PACKET_ORDER
+    PACKET_ORDER += 1
+    order = order.to_bytes(4, "big")
+    operation = 3
+    operation = operation.to_bytes(1, "big")
+    msg = msg.encode()
+    crc = libscrc.buypass(order + operation + msg)
+    crc = crc.to_bytes(4, "big")
+    packet = order + operation + msg + crc
+    return packet
+
+
+def create_END_packet():
+    global PACKET_BUFFER, PACKET_ORDER
+    order = PACKET_ORDER
+    PACKET_ORDER += 1
+    operation = 2
+    msg = "-1"
+    order = order.to_bytes(4, "big")
+    operation = operation.to_bytes(1, "big")
+    msg = msg.encode()
+    crc = libscrc.buypass(order + operation + msg)
+    crc = crc.to_bytes(4, "big")
+    packet = order + operation + msg + crc
+    PACKET_BUFFER.append(copy(packet))
+
+
+def encode_multiple_packets(msg):
+    global PACKET_ORDER, PACKET_BUFFER, GLOBAL_MESSAGE_COUNTER
     PACKET_BUFFER.clear()
-    packet_cut = FRAGMENT_SIZE - 9
-    cut_string = [msg[i:i+packet_cut] for i in range(0, len(msg), packet_cut)]
-    print(cut_string)
+    packet_cut = FRAGMENT_SIZE - FRAGMENT_HEAD_SIZE
+    cut_string = [msg[i:i + packet_cut] for i in range(0, len(msg), packet_cut)]
 
     for i in range(len(cut_string)):
+        order = PACKET_ORDER
+        PACKET_ORDER += 1
+        order = order.to_bytes(4, "big")
+        operation = 3
+        operation = operation.to_bytes(1, "big")
+        total_packets = len(cut_string)
+        total_packets = total_packets.to_bytes(4, "big")
         cut_msg = cut_string[i].encode()
-        print(cut_msg)
-        order = PACKET_ORDER
-        PACKET_ORDER += 1
-        order = order.to_bytes(4, "big")
-        operation = "001"
-        operation = operation.encode()
-        crc = libscrc.buypass(order + operation + cut_msg)
-        crc = crc.to_bytes(2, "big")
-
-        fragment_msg = order + operation + cut_msg + crc
+        crc = libscrc.buypass(order + operation + total_packets + cut_msg)
+        crc = crc.to_bytes(4, "big")
+        fragment_msg = order + operation + total_packets + cut_msg + crc
         PACKET_BUFFER.append(copy(fragment_msg))
-        print(PACKET_BUFFER)
-        print(len(PACKET_BUFFER[i]))
+
+    # create_END_packet()
+    print(PACKET_BUFFER)
 
 
-def create_get_ready_packet():
-    order = 0
-    order = order.to_bytes(4, "big")
-    operation = 'RDY'
-    operation = operation.encode()
-    crc = libscrc.buypass(order + operation)
-    crc = crc.to_bytes(2, "big")
-    packet = order + operation + crc
-    return packet
-
-
-def create_packet():
-    global PACKET_ORDER, PACKET_BUFFER
-    msg = input("Insert your message: ")
-
-    if len(msg) + 9 > FRAGMENT_SIZE:
-        split_into_fragments(msg)
-        packet = create_get_ready_packet()
-        print(packet)
-        return packet
+def encode_data():
+    global GLOBAL_MESSAGE, MULTIPLE_FRAGMENTS_FLAG
+    msg = input("Please write your message: ")
+    if len(msg) + FRAGMENT_HEAD_SIZE > FRAGMENT_SIZE:
+        MULTIPLE_FRAGMENTS_FLAG = True
+        encode_multiple_packets(msg)
+        return 0
     else:
-        msg = msg.encode()
-        order = PACKET_ORDER
-        PACKET_ORDER += 1
-        order = order.to_bytes(4, "big")
-        operation = '001'
-        operation = operation.encode()
-        checksum = libscrc.buypass(order + operation + msg)
-        checksum = checksum.to_bytes(2, "big")
-        msg = order + operation + msg + checksum
-        return msg
+        packet = encode_single_packet(msg)
+        return packet
 
 
-def decode_acknowledgement_packet(data):
-    msg = data.decode()
-    operation = msg[0:3]
-    checksum = msg[3:]
-    packet = [operation, checksum]
-    return packet
+def decode_ACK(data):
+    order = int.from_bytes(data[:4], "big")
+    operation = int.from_bytes(data[4:5], "big")
+    opcode = get_flag(operation)
+    msg = data[5:-4]
+    msg = msg.decode()
+    crc = int.from_bytes(data[-4:], "big")
+    checksum = libscrc.buypass(order.to_bytes(4, "big") + operation.to_bytes(1, "big") + msg.encode())
+    if checksum == crc:
+        packet = [order, opcode, crc]
+        return packet
 
 
 def main():
-    global FRAGMENTED_PACKET_FLAG
+    i = 0
+    global MULTIPLE_FRAGMENTS_FLAG, PACKET_ORDER
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
         s.connect((HOST, PORT))
         while True:
-            packet = create_packet()
-            print("length: ")
-            print(len(packet))
-            if FRAGMENTED_PACKET_FLAG:
-                for i in range(len(PACKET_BUFFER)):
-                    print(PACKET_BUFFER[i])
-                    s.send(PACKET_BUFFER[i])
-            else:
-                s.send(packet)
-            data = s.recv(FRAGMENT_SIZE)
-            packet_ack = decode_acknowledgement_packet(data)
+            msg = input("Enter message: ")
+            encode_multiple_packets(msg)
+            for i in range(len(PACKET_BUFFER)):
+                print(PACKET_BUFFER[i])
+                s.send(PACKET_BUFFER[i])
+            PACKET_ORDER = 1
 
-            print(f"Acknowledged: {packet_ack[0]}\n"
-                  f"Checksum: {packet_ack[1]}")
-            #print("Received:", data.decode())
+
+
+
+            #send_packet = encode_data()
+            #if MULTIPLE_FRAGMENTS_FLAG:
+            #   for i in range(len(PACKET_BUFFER)):
+            #       print(PACKET_BUFFER[i])
+            #       s.send(PACKET_BUFFER[i])
+            #   MULTIPLE_FRAGMENTS_FLAG = False
+            #else:
+            #   print("got here")
+    #   s.send(send_packet)
+            #data = s.recv(FRAGMENT_SIZE)
+            #print(f"ack packet {data}")
+            #if not data:
+            #   break
+            #packet = decode_ACK(data)
+            #print(f"Acknowledgement packet: \n"
+                #     f"Order: {packet[0]}\n"
+                # f"Operation: {packet[1]}\n"
+            # f"Checksum: {packet[2]}\n")
 
 
 if __name__ == "__main__":
