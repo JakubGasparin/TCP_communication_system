@@ -1,4 +1,4 @@
-
+import os
 import socket
 from copy import copy
 
@@ -12,14 +12,16 @@ RDY = 1
 END = 2
 WRT = 3
 MPK = 4
+PFL = 5
 
 ####### FLAGS ######
 
 
 HOST = "192.168.56.1"
 PORT = 5555
-FRAGMENT_SIZE = 50
+FRAGMENT_SIZE = 1024
 FRAGMENT_HEAD_SIZE = 13  # STATICKÁ HODNOTA NEMENTO!!!!
+OPERATION = 0
 
 
 def get_flag(operation):
@@ -34,6 +36,9 @@ def get_flag(operation):
         return operation
     if operation == WRT:
         operation = "_WRT"
+        return operation
+    if operation == PFL:
+        operation = "_PFL"
         return operation
 
 
@@ -62,14 +67,35 @@ def decode_END(data, operation, opcode):
         return packet
 
 
+def decode_PFL(data, operation, opcode):
+    order = int.from_bytes(data[:4], "big")
+    total_packets = int.from_bytes(data[5:9], "big")
+    msg = data[9:-4]
+    crc = int.from_bytes(data[-4:], "big")
+    checksum = libscrc.buypass(order.to_bytes(4, "big") + operation.to_bytes(1, "big") +
+                               total_packets.to_bytes(4, "big") + msg)
+    #msg = msg.decode()
+    if checksum == crc:
+        packet = [order, opcode, total_packets, msg, crc]
+        #print(packet)
+        return packet
+
+
 def decode_data(data):
+    global OPERATION
     operation = int.from_bytes(data[4:5], "big")
     opcode = get_flag(operation)
     if opcode == "_WRT":
+        OPERATION = "_WRT"
         packet = decode_WRT(data, operation, opcode)
         return packet
     if opcode == "_END":
+        OPERATION = "_END"
         packet = decode_END(data, operation, opcode)
+        return packet
+    if opcode == "_PFL":
+        OPERATION = "_PFL"
+        packet = decode_PFL(data, operation, opcode)
         return packet
 
 
@@ -93,6 +119,20 @@ def list_to_string(list):
     return str
 
 
+def bytes_array_to_file(data):
+    bytes_array = bytearray()
+    for i in data:
+        bytes_array += i
+    filePath = input("Enter download path: ")
+    fileName = input("Enter name of the file: ")
+    if os.path.exists(filePath):
+        filePath = filePath + "\\" + fileName
+        with open(filePath, "wb+") as bin_file:
+            bin_file.write(bytes_array)
+    print(f"File successfully downloaded on {filePath}")
+    return
+
+
 def main():
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
         s.bind((HOST, PORT))
@@ -104,7 +144,6 @@ def main():
                 print("Connected to", addr)
                 while True:
                     data = conn.recv(FRAGMENT_SIZE)
-                    print(data)
                     if not data:
                         break
                     packet = decode_data(data)
@@ -114,11 +153,17 @@ def main():
                           f"Message: {packet[3]}\n"
                           f"Checksum: {packet[4]}\n")
                     full_msg.append(copy(packet[3]))
-                    if packet[0] == packet[2]:
+                    if packet[0] == packet[2] and OPERATION == "_WRT":
                         str = list_to_string(full_msg)
                         print(str)
                         print("\n")
-                        str = ""
+                        del str
+                        full_msg.clear()
+                    if packet[0] == packet[2] and OPERATION == "_PFL":
+                        bytes_array_to_file(full_msg)
+                        full_msg.clear()
+
+
 
 
                     #try:

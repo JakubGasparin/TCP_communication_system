@@ -1,3 +1,4 @@
+import os
 import socket
 from copy import copy
 
@@ -5,20 +6,21 @@ import libscrc
 
 ####### FLAGS ######
 
-ACK = 0
-RDY = 1
-END = 2
-WRT = 3
-MPK = 4
+ACK = 0  # Acknowledgement
+RDY = 1  # Ready for communication
+END = 2  # End of communication
+WRT = 3  # Write a message (from command prompt)
+MPK = 4  # Multiple packets
+PFL = 5  # File packet  (i.e. sending .jpg, or .docx)
 
 ####### FLAGS ######
 
 
 HOST = "192.168.56.1"
 PORT = 5555
-FRAGMENT_SIZE = 50
+FRAGMENT_SIZE = 1024
 PACKET_ORDER = 1
-OPERATION = ""
+OPERATION = 0
 FRAGMENT_HEAD_SIZE = 13  # STATICKÁ HODNOTA NEMENTO!!!!
 GLOBAL_MESSAGE = ""
 GLOBAL_MESSAGE_COUNTER = 0
@@ -38,6 +40,9 @@ def get_flag(operation):
         return operation
     if operation == WRT:
         operation = "_WRT"
+        return operation
+    if operation == PFL:
+        operation = "_PFL"
         return operation
 
 
@@ -80,7 +85,7 @@ def encode_multiple_packets(msg):
         order = PACKET_ORDER
         PACKET_ORDER += 1
         order = order.to_bytes(4, "big")
-        operation = 3
+        operation = OPERATION
         operation = operation.to_bytes(1, "big")
         total_packets = len(cut_string)
         total_packets = total_packets.to_bytes(4, "big")
@@ -93,6 +98,27 @@ def encode_multiple_packets(msg):
     # create_END_packet()
     print(PACKET_BUFFER)
 
+def encode_file_packets(fileContent):
+    global PACKET_ORDER, PACKET_BUFFER
+    PACKET_BUFFER.clear()
+    packet_cut = FRAGMENT_SIZE - FRAGMENT_HEAD_SIZE
+    cut_string = [fileContent[i:i + packet_cut] for i in range(0, len(fileContent), packet_cut)]
+
+    for i in range(len(cut_string)):
+        order = PACKET_ORDER
+        PACKET_ORDER += 1
+        order = order.to_bytes(4, "big")
+        operation = OPERATION
+        operation = operation.to_bytes(1, "big")
+        total_packets = len(cut_string)
+        total_packets = total_packets.to_bytes(4, "big")
+        cut_data = cut_string[i]
+        crc = libscrc.buypass(order + operation + total_packets + cut_data)
+        crc = crc.to_bytes(4, "big")
+        fragment_msg = order + operation + total_packets + cut_data + crc
+        PACKET_BUFFER.append(copy(fragment_msg))
+
+    print(PACKET_BUFFER)
 
 def encode_data():
     global GLOBAL_MESSAGE, MULTIPLE_FRAGMENTS_FLAG
@@ -121,15 +147,39 @@ def decode_ACK(data):
 
 def main():
     i = 0
-    global MULTIPLE_FRAGMENTS_FLAG, PACKET_ORDER
+    global MULTIPLE_FRAGMENTS_FLAG, PACKET_ORDER, OPERATION
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
         s.connect((HOST, PORT))
         while True:
-            msg = input("Enter message: ")
-            encode_multiple_packets(msg)
-            for i in range(len(PACKET_BUFFER)):
-                print(PACKET_BUFFER[i])
-                s.send(PACKET_BUFFER[i])
+            packetType = input("Are you sending a message or a file?\n (msg/file)\n")
+            if packetType == "msg":
+                OPERATION = WRT
+                msg = input("Enter message: ")
+                encode_multiple_packets(msg)
+                for i in range(len(PACKET_BUFFER)):
+                    print(PACKET_BUFFER[i])
+                    s.send(PACKET_BUFFER[i])
+            if packetType == "file":
+                OPERATION = PFL
+                filePath = input("Enter filepath to your file you wish to send: ")
+                fileName = input("Enter filename of the file you wish to send: ")
+                if os.path.exists(filePath):
+                    filePath = filePath + "\\" + fileName
+                    if os.path.exists(filePath):
+                        with open(filePath, "rb") as bin_file:
+                            fileContent = bin_file.read()
+                        encode_file_packets(fileContent)
+                        for i in range(len(PACKET_BUFFER)):
+                            print(PACKET_BUFFER[i])
+                            s.send(PACKET_BUFFER[i])
+                    else:
+                        print("File does not exist")
+                else:
+                    print("Directory or patch to it does not exist")
+            else:
+                print("Wrong packet type, please make sure to select correct type for the program to work")
+
+            OPERATION = 0
             PACKET_ORDER = 1
 
 

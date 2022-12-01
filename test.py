@@ -2,6 +2,7 @@
 import socket
 import copy
 import multiprocessing
+import struct
 import time
 import sys
 import os
@@ -69,26 +70,71 @@ while len(crc) != 5:
 print(crc)
 string = "MKNDKJASNDCôASJKCNASôODMNASôLDNASôLKMDKLôSS!!!éíáýžťčšľ+12324789?:"
 string_utf = string.encode()
-order = 999999999
+order = 3
 order = order.to_bytes(4, 'big')
 crc = libscrc.buypass(order + string_utf + operation_utf)
 print(crc)
 
 crc = crc.to_bytes(2, "big")
+operation = "WRT"
+operation = operation.encode()
 
-msg = order + string_utf + operation_utf + crc
+msg = order + operation + string_utf + crc
 print(msg)
 
 msg_order = int.from_bytes(msg[:4], "big")
 msg_crc = int.from_bytes(msg[-2:], "big")
-msg = msg[4:]
-msg = msg[:-2]
-msg = msg.decode()
+op_utf = msg[4:7]
+msg_utf = msg[7:-2]
+msg_utf = msg_utf.decode()
+op_utf = op_utf.decode()
 
-print(msg_order)
-print(msg_crc)
-print(msg)
-
-
+# filePath = input("Enter file path: ")
+# print(filePath)
 
 
+#  with open("files/files.txt", "rb") as bin_file:
+#  fileContent = bin_file.read()
+
+
+#  if os.path.exists(filePath):
+#  fileName = input("Enter file name:  ")
+#   filePath = filePath + "\\" + fileName
+#   print(filePath)
+#   with open(filePath, "w+") as file:
+#       fileContent = fileContent.decode()
+#       print(fileContent)
+#       file.write(fileContent)
+
+#file_path_to_send = input("Enter file path to your file: ")
+#file_to_send = input("Enter file name to send: ")
+
+#file_to_send = file_path_to_send + "\\" + file_to_send
+
+#filePath = input("Enter file path: ")
+
+
+#with open(file_to_send, "rb") as bin_file:
+   # fileContent = bin_file.read()
+    #print(fileContent)
+
+#if os.path.exists(filePath):
+   # fileName = input("Enter fie name: ")
+    #filePath = filePath + "\\" + fileName
+#    with open(filePath, "wb+") as file:
+      #  print(fileContent)
+        #file.write(fileContent)
+
+
+str1 = "this is the first half, "
+str1 = str1.encode()
+str2 = "this is the second half"
+str2 = str2.encode()
+
+bytes_arr = str1 + str2
+
+print(bytes_arr)
+
+
+ba = bytearray()
+print(type(ba))
