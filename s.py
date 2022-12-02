@@ -1,6 +1,7 @@
 import os
 import socket
 from copy import copy
+import random
 
 import libscrc
 
@@ -13,20 +14,22 @@ END = 2
 WRT = 3
 MPK = 4
 PFL = 5
+NCK = 6
 
 ####### FLAGS ######
 
 
 HOST = "192.168.56.1"
 PORT = 5555
-FRAGMENT_SIZE = 1024
+FRAGMENT_SIZE = 200
 FRAGMENT_HEAD_SIZE = 13  # STATICKÁ HODNOTA NEMENTO!!!!
 OPERATION = 0
+SIMULATE_ERROR = True
 
 
 def get_flag(operation):
     if operation == ACK:
-        operation = "_ACL"
+        operation = "_ACK"
         return operation
     if operation == RDY:
         operation = "_RDY"
@@ -43,14 +46,23 @@ def get_flag(operation):
 
 
 def decode_WRT(data, operation, opcode):
+    global SIMULATE_ERROR
     order = int.from_bytes(data[:4], "big")
     total_packets = int.from_bytes(data[5:9], "big")
     msg = data[9:-4]
     crc = int.from_bytes(data[-4:], "big")
-    checksum = libscrc.buypass(order.to_bytes(4, "big") + operation.to_bytes(1, "big") + total_packets.to_bytes(4, "big") + msg)
+    checksum = libscrc.buypass(order.to_bytes(4, "big") + operation.to_bytes(1, "big") +
+                               total_packets.to_bytes(4, "big") + msg)
+    if SIMULATE_ERROR:
+        if random.randint(1, 3) == 1:
+            checksum = checksum + checksum
+            print("Wrong packet, requesting resending...")
     msg = msg.decode()
     if checksum == crc:
         packet = [order, opcode, total_packets,  msg, crc]
+        return packet
+    else:
+        packet = [0, "_NCK", 0, 0, 0]
         return packet
 
 
@@ -65,6 +77,9 @@ def decode_END(data, operation, opcode):
     if checksum == crc:
         packet = [order, opcode, total_packets, msg, crc]
         return packet
+    else:
+        packet = [0, "_NCK", 0, 0, 0]
+        return packet
 
 
 def decode_PFL(data, operation, opcode):
@@ -74,10 +89,15 @@ def decode_PFL(data, operation, opcode):
     crc = int.from_bytes(data[-4:], "big")
     checksum = libscrc.buypass(order.to_bytes(4, "big") + operation.to_bytes(1, "big") +
                                total_packets.to_bytes(4, "big") + msg)
-    #msg = msg.decode()
+    if SIMULATE_ERROR:
+        if random.randint(1, 25) == 1:
+            checksum = checksum + checksum
+            print("Wrong packet")
     if checksum == crc:
         packet = [order, opcode, total_packets, msg, crc]
-        #print(packet)
+        return packet
+    else:
+        packet = [0, "_NCK", 0, 0, 0]
         return packet
 
 
@@ -102,13 +122,29 @@ def decode_data(data):
 def encode_ACK():
     order = 0
     opcode = 0
-    msg = "-1"
-    crc = libscrc.buypass(order.to_bytes(4, "big") + opcode.to_bytes(1, "big") + msg.encode())
+    msg = "Acknowledgement"
+    total_packets = 1
     order = order.to_bytes(4, "big")
     opcode = opcode.to_bytes(1, "big")
+    total_packets = total_packets.to_bytes(4, "big")
     msg = msg.encode()
+    crc = libscrc.buypass(order + opcode + total_packets + msg)
     crc = crc.to_bytes(4, "big")
-    packet = order + opcode + msg + crc
+    packet = order + opcode + total_packets + msg + crc
+    return packet
+
+def encode_NCK():
+    order = 0
+    opcode = 6
+    msg = "Not acknowledged"
+    total_packets = 1
+    order = order.to_bytes(4, "big")
+    opcode = opcode.to_bytes(1, "big")
+    total_packets = total_packets.to_bytes(4, "big")
+    msg = msg.encode()
+    crc = libscrc.buypass(order + opcode + total_packets + msg)
+    crc = crc.to_bytes(4, "big")
+    packet = order + opcode + total_packets + msg + crc
     return packet
 
 
@@ -152,14 +188,23 @@ def main():
                           f"Total_packets: {packet[2]}\n"
                           f"Message: {packet[3]}\n"
                           f"Checksum: {packet[4]}\n")
-                    full_msg.append(copy(packet[3]))
-                    if packet[0] == packet[2] and OPERATION == "_WRT":
+
+                    if packet[1] != "_NCK":
+                        print("got here")
+                        full_msg.append(copy(packet[3]))
+                        ACK_packet = encode_ACK()
+                        conn.send(ACK_packet)
+                    if packet[1] == "_NCK":
+                        NCK_packet = encode_NCK()
+                        conn.send(NCK_packet)
+
+                    if packet[0] == packet[2] and OPERATION == "_WRT" and packet[1] != "_NCK":
                         str = list_to_string(full_msg)
                         print(str)
                         print("\n")
                         del str
                         full_msg.clear()
-                    if packet[0] == packet[2] and OPERATION == "_PFL":
+                    if packet[0] == packet[2] and OPERATION == "_PFL" and packet[1] != "_NCK":
                         bytes_array_to_file(full_msg)
                         full_msg.clear()
 

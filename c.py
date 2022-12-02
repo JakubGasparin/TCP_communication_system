@@ -12,13 +12,14 @@ END = 2  # End of communication
 WRT = 3  # Write a message (from command prompt)
 MPK = 4  # Multiple packets
 PFL = 5  # File packet  (i.e. sending .jpg, or .docx)
+NCK = 6  # Not Acknowleged
 
 ####### FLAGS ######
 
 
 HOST = "192.168.56.1"
 PORT = 5555
-FRAGMENT_SIZE = 1024
+FRAGMENT_SIZE = 200
 PACKET_ORDER = 1
 OPERATION = 0
 FRAGMENT_HEAD_SIZE = 13  # STATICKÁ HODNOTA NEMENTO!!!!
@@ -30,7 +31,7 @@ MULTIPLE_FRAGMENTS_FLAG = False
 
 def get_flag(operation):
     if operation == ACK:
-        operation = "_ACL"
+        operation = "_ACK"
         return operation
     if operation == RDY:
         operation = "_RDY"
@@ -43,6 +44,9 @@ def get_flag(operation):
         return operation
     if operation == PFL:
         operation = "_PFL"
+        return operation
+    if operation == NCK:
+        operation = "_NCK"
         return operation
 
 
@@ -120,6 +124,7 @@ def encode_file_packets(fileContent):
 
     print(PACKET_BUFFER)
 
+
 def encode_data():
     global GLOBAL_MESSAGE, MULTIPLE_FRAGMENTS_FLAG
     msg = input("Please write your message: ")
@@ -135,13 +140,15 @@ def encode_data():
 def decode_ACK(data):
     order = int.from_bytes(data[:4], "big")
     operation = int.from_bytes(data[4:5], "big")
-    opcode = get_flag(operation)
-    msg = data[5:-4]
+    total_packets = int.from_bytes(data[5:9], "big")
+    msg = data[9:-4]
     msg = msg.decode()
     crc = int.from_bytes(data[-4:], "big")
-    checksum = libscrc.buypass(order.to_bytes(4, "big") + operation.to_bytes(1, "big") + msg.encode())
+    checksum = libscrc.buypass(order.to_bytes(4, "big") + operation.to_bytes(1, "big") +
+                               total_packets.to_bytes(4, "big") + msg.encode())
+    opcode = get_flag(operation)
     if checksum == crc:
-        packet = [order, opcode, crc]
+        packet = [order, opcode, total_packets, msg,  crc]
         return packet
 
 
@@ -157,8 +164,19 @@ def main():
                 msg = input("Enter message: ")
                 encode_multiple_packets(msg)
                 for i in range(len(PACKET_BUFFER)):
-                    print(PACKET_BUFFER[i])
                     s.send(PACKET_BUFFER[i])
+
+                    ACK_packet = s.recv(FRAGMENT_SIZE)
+                    ACK_packet = decode_ACK(ACK_packet)
+
+                    while ACK_packet[1] == "_NCK":
+                        print(f"Failed to send packet number {i}, resending packet...\n")
+                        s.send(PACKET_BUFFER[i])
+                        ACK_packet = s.recv(FRAGMENT_SIZE)
+                        ACK_packet = decode_ACK(ACK_packet)
+
+                    print(f"Packet number {i} was sent successfully. Yay :D\n")
+
             if packetType == "file":
                 OPERATION = PFL
                 filePath = input("Enter filepath to your file you wish to send: ")
@@ -172,12 +190,24 @@ def main():
                         for i in range(len(PACKET_BUFFER)):
                             print(PACKET_BUFFER[i])
                             s.send(PACKET_BUFFER[i])
+
+                            ACK_packet = s.recv(FRAGMENT_SIZE)
+                            ACK_packet = decode_ACK(ACK_packet)
+
+                            while ACK_packet[1] == "_NCK":
+                                print(f"Failed to send packet number {i}, resending packet...\n")
+                                s.send(PACKET_BUFFER[i])
+                                ACK_packet = s.recv(FRAGMENT_SIZE)
+                                ACK_packet = decode_ACK(ACK_packet)
+
+                            print(f"Packet number {i} was sent successfully. Yay :D\n")
+
                     else:
                         print("File does not exist")
                 else:
                     print("Directory or patch to it does not exist")
             else:
-                print("Wrong packet type, please make sure to select correct type for the program to work")
+                print("\n")
 
             OPERATION = 0
             PACKET_ORDER = 1
