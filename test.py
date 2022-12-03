@@ -139,3 +139,6 @@ print(bytes_arr)
 
 ba = bytearray()
 print(type(ba))
+
+SERVER = socket.gethostbyname(socket.gethostname())
+print(SERVER)
