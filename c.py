@@ -1,5 +1,7 @@
 import os
 import socket
+import threading
+import time
 from copy import copy
 
 import libscrc
@@ -13,6 +15,7 @@ WRT = 3  # Write a message (from command prompt)
 MPK = 4  # Multiple packets
 PFL = 5  # File packet  (i.e. sending .jpg, or .docx)
 NCK = 6  # Not Acknowleged
+KAR = 7  # Keep Alive Reqest
 
 ####### FLAGS ######
 
@@ -152,13 +155,46 @@ def decode_ACK(data):
         return packet
 
 
+def encode_KAR():
+    order = 0
+    operation = KAR
+    total_packets = 1
+    msg = "Keep alive request"
+    order = order.to_bytes(4, "big")
+    operation = operation.to_bytes(1, "big")
+    total_packets = total_packets.to_bytes(4, "big")
+    msg = msg.encode()
+    crc = libscrc.buypass(order + operation + total_packets + msg)
+    crc = crc.to_bytes(4, "big")
+    packet = order + operation + total_packets + msg + crc
+    return packet
+
+
+def send_keep_alive_request(s):
+    while True:
+        KAR_packet = encode_KAR()
+        time.sleep(10)
+        print("Sending Keep alive request")
+        s.send(KAR_packet)
+
+
 def main():
     i = 0
     global MULTIPLE_FRAGMENTS_FLAG, PACKET_ORDER, OPERATION
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
         s.connect((HOST, PORT))
+
+        ### THREAD ###
+        keep_alive_thread = threading.Thread(target=send_keep_alive_request, args=(s,))
+        keep_alive_thread.start()
+        ### THREAD ###
+
         while True:
             packetType = input("Are you sending a message or a file?\n (msg/file)\n")
+
+
+            ### MESSAGE ################################################
+
             if packetType == "msg":
                 OPERATION = WRT
                 msg = input("Enter message: ")
@@ -176,6 +212,11 @@ def main():
                         ACK_packet = decode_ACK(ACK_packet)
 
                     print(f"Packet number {i} was sent successfully. Yay :D\n")
+
+            ### MESSAGE ################################################
+
+
+            ### FILE ################################################
 
             if packetType == "file":
                 OPERATION = PFL
@@ -202,10 +243,14 @@ def main():
 
                             print(f"Packet number {i} was sent successfully. Yay :D\n")
 
+
                     else:
                         print("File does not exist")
                 else:
                     print("Directory or patch to it does not exist")
+
+                ### FILE ################################################
+
             else:
                 print("\n")
 

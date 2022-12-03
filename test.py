@@ -9,6 +9,7 @@ import os
 import select
 import zlib
 import libscrc
+import threading
 string = "lorem ipsum lorem ipsum 11111 2222233333123456"
 order = '12'
 operation = '001'

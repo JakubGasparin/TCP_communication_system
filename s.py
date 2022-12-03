@@ -15,8 +15,12 @@ WRT = 3
 MPK = 4
 PFL = 5
 NCK = 6
+KAR = 7
 
 ####### FLAGS ######
+
+
+###### GLOBAL VARIABLES ########
 
 
 HOST = "192.168.56.1"
@@ -24,7 +28,13 @@ PORT = 5555
 FRAGMENT_SIZE = 200
 FRAGMENT_HEAD_SIZE = 13  # STATICKÁ HODNOTA NEMENTO!!!!
 OPERATION = 0
-SIMULATE_ERROR = True
+SIMULATE_ERROR = False
+
+
+###### GLOBAL VARIABLES ########
+
+
+###### FLAG FUNCTION, SAME FOR BOTH PROGRAMS ######
 
 
 def get_flag(operation):
@@ -43,6 +53,15 @@ def get_flag(operation):
     if operation == PFL:
         operation = "_PFL"
         return operation
+    if operation == KAR:
+        operation = "_KAR"
+        return operation
+
+
+###### FLAG FUNCTION, SAME FOR BOTH PROGRAMS ######
+
+
+################################ RECEIVER PROGRAM #############################
 
 
 def decode_WRT(data, operation, opcode):
@@ -101,6 +120,19 @@ def decode_PFL(data, operation, opcode):
         return packet
 
 
+def decode_KAR(data, operation, opcode):
+    order = int.from_bytes(data[:4], "big")
+    total_packets = int.from_bytes(data[5:9], "big")
+    msg = data[9:-4]
+    crc = int.from_bytes(data[-4:], "big")
+    checksum = libscrc.buypass(order.to_bytes(4, "big") + operation.to_bytes(1, "big") +
+                               total_packets.to_bytes(4, "big") + msg)
+
+    if checksum == crc:
+        packet = [order, opcode, total_packets, msg, crc]
+        return packet
+
+
 def decode_data(data):
     global OPERATION
     operation = int.from_bytes(data[4:5], "big")
@@ -116,6 +148,10 @@ def decode_data(data):
     if opcode == "_PFL":
         OPERATION = "_PFL"
         packet = decode_PFL(data, operation, opcode)
+        return packet
+    if opcode == "_KAR":
+        OPERATION = "_KAR"
+        packet = decode_KAR(data, operation, opcode)
         return packet
 
 
@@ -168,6 +204,12 @@ def bytes_array_to_file(data):
     print(f"File successfully downloaded on {filePath}")
     return
 
+################################ RECEIVER PROGRAM #############################
+
+
+
+
+################################ DRIVER FUNCTION ##############################
 
 def main():
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
@@ -180,6 +222,7 @@ def main():
                 print("Connected to", addr)
                 while True:
                     data = conn.recv(FRAGMENT_SIZE)
+                    print(data)
                     if not data:
                         break
                     packet = decode_data(data)
@@ -189,8 +232,7 @@ def main():
                           f"Message: {packet[3]}\n"
                           f"Checksum: {packet[4]}\n")
 
-                    if packet[1] != "_NCK":
-                        print("got here")
+                    if packet[1] != "_NCK" and packet[1] != "_KAR":
                         full_msg.append(copy(packet[3]))
                         ACK_packet = encode_ACK()
                         conn.send(ACK_packet)
@@ -220,6 +262,9 @@ def main():
                     #print(f"ack packet {ACK_packet}")
                     #conn.send(ACK_packet)
 
+################################ DRIVER FUNCTION ##############################
 
+
+# Main function caller
 if __name__ == "__main__":
     main()
