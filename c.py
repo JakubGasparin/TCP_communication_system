@@ -1,5 +1,6 @@
 import os
 import socket
+import sys
 import threading
 import time
 from copy import copy
@@ -14,9 +15,10 @@ END = 2  # End of communication
 WRT = 3  # Write a message (from command prompt)
 MPK = 4  # Multiple packets
 PFL = 5  # File packet  (i.e. sending .jpg, or .docx)
-NCK = 6  # Not Acknowleged
-KAR = 7  # Keep Alive Reqest
+NCK = 6  # Not Acknowledged
+KAR = 7  # Keep Alive Request
 SWR = 8  # Switch Roles
+FIN = 9  # Finish communication
 
 ####### FLAGS ######
 
@@ -32,7 +34,7 @@ GLOBAL_MESSAGE = ""
 GLOBAL_MESSAGE_COUNTER = 0
 PACKET_BUFFER = []
 MULTIPLE_FRAGMENTS_FLAG = False
-SIMULATE_ERROR = False
+SIMULATE_ERROR = True
 
 ###### FLAG FUNCTION, SAME FOR BOTH PROGRAMS ######
 
@@ -57,6 +59,9 @@ def get_flag(operation):
         return operation
     if operation == SWR:
         operation = "_SWR"
+        return operation
+    if operation == FIN:
+        operation = "_FIN"
         return operation
 
 ###### FLAG FUNCTION, SAME FOR BOTH PROGRAMS ######
@@ -203,6 +208,20 @@ def encode_SWR():
     packet = order + operation + total_packets + msg + crc
     return packet
 
+def encode_FIN():
+    order = 0
+    operation = FIN
+    total_packets = 1
+    msg = "Finish"
+    order = order.to_bytes(4, "big")
+    operation = operation.to_bytes(1, "big")
+    total_packets = total_packets.to_bytes(4, "big")
+    msg = msg.encode()
+    crc = libscrc.buypass(order + operation + total_packets + msg)
+    crc = crc.to_bytes(4, "big")
+    packet = order + operation + total_packets + msg + crc
+    return packet
+
 ################## SENDER CODE #################################################
 
 ################################ RECEIVER PROGRAM #############################
@@ -263,7 +282,6 @@ def decode_PFL(data, operation, opcode):
         packet = [0, "_NCK", 0, 0, 0]
         return packet
 
-
 def decode_KAR(data, operation, opcode):
     order = int.from_bytes(data[:4], "big")
     total_packets = int.from_bytes(data[5:9], "big")
@@ -289,6 +307,19 @@ def decode_SWR(data, operation, opcode):
         packet = [order, opcode, total_packets, msg, crc]
         return packet
 
+def decode_FIN(data, operation, opcode):
+    order = int.from_bytes(data[:4], "big")
+    total_packets = int.from_bytes(data[5:9], "big")
+    msg = data[9:-4]
+    crc = int.from_bytes(data[-4:], "big")
+    checksum = libscrc.buypass(order.to_bytes(4, "big") + operation.to_bytes(1, "big") +
+                               total_packets.to_bytes(4, "big") + msg)
+
+    if checksum == crc:
+        packet = [order, opcode, total_packets, msg, crc]
+        return packet
+
+
 
 def decode_data(data):
     global OPERATION
@@ -313,6 +344,10 @@ def decode_data(data):
     if opcode == "_SWR":
         OPERATION = "_SWR"
         packet = decode_SWR(data, operation, opcode)
+        return packet
+    if opcode == "_FIN":
+        OPERATION = "_FIN"
+        packet = decode_FIN(data, operation, opcode)
         return packet
 
 def encode_ACK():
@@ -390,11 +425,23 @@ def server():
                     if not data:
                         break
                     packet = decode_data(data)
-                    print(f"Order: {packet[0]}\n"
+                    print(f"Length of fragment: {len(data)}\n"
+                          f"Order: {packet[0]}\n"
                           f"Operation: {packet[1]}\n"
                           f"Total_packets: {packet[2]}\n"
                           f"Message: {packet[3]}\n"
                           f"Checksum: {packet[4]}\n")
+
+                    if packet[1] == "_SWR":
+                        conn.close()
+                        client()
+                    if packet[1] == "_FIN":
+                        print(f"Connection with {addr} ended.\n")
+                        ACK_packet = encode_ACK()
+                        conn.send(ACK_packet)
+                        conn.close()
+                        return
+
 
                     if packet[1] != "_NCK" and packet[1] != "_KAR":
                         full_msg.append(copy(packet[3]))
@@ -416,6 +463,7 @@ def server():
 
 ################################ SERVER CODE FUNCTION ##############################
 
+
 ################################ CLIENT FUNCTION CODE ##############################
 
 
@@ -424,7 +472,7 @@ def client():
     global MULTIPLE_FRAGMENTS_FLAG, PACKET_ORDER, OPERATION, FRAGMENT_SIZE, HOST, PORT
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
         HOST = input(f"Current host name is {HOST}, select your new host"
-                     f" (or type the same address to keep the current host):\n ")
+                     f" (or type the same address to keep the current host): \n ")
         PORT = int(input(f"Default port of this program is {PORT}, "
                          f"select your new port or keep the same port by typing in the current port value: \n"))
         FRAGMENT_SIZE = int(input("Choose fragment size: \n"))
@@ -436,7 +484,8 @@ def client():
         ### THREAD ###
 
         while True:
-            packetType = input("Are you sending a message or a file or switching roles?\n (msg/file/switch)\n")
+            packetType = input("Are you sending a message or a file, switching roles or ending communication"
+                               "?\n (msg/file/switch/end)\n")
 
 
             ### MESSAGE ################################################
@@ -501,6 +550,13 @@ def client():
                 s.send(SWR_packet)
                 s.close()
                 server()
+
+            elif packetType == "end":
+                FIN_packet = encode_FIN()
+                s.send(FIN_packet)
+                ACK_packet = s.recv(FRAGMENT_SIZE)
+                print(ACK_packet)
+                return
 
             else:
                 print("\n")
